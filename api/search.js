@@ -1,3 +1,4 @@
+const fetch = require('node-fetch');
 const http = require('http');
 
 const PORT = process.env.PORT || 10000;
