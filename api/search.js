@@ -1,43 +1,67 @@
-export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
-  res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization');
+const http = require('http');
 
+const PORT = process.env.PORT || 10000;
+
+const server = http.createServer(async (req, res) => {
+  // CORS headers
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  // Handle preflight
   if (req.method === 'OPTIONS') {
-    res.status(200).end();
+    res.writeHead(200);
+    res.end();
     return;
   }
 
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+  // Only POST to /api/search
+  if (req.url !== '/api/search' || req.method !== 'POST') {
+    res.writeHead(405, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Method not allowed' }));
+    return;
   }
 
   try {
-    const { queries, apiKey } = req.body;
+    let body = '';
+    req.on('data', chunk => {
+      body += chunk.toString();
+    });
 
-    if (!queries || !Array.isArray(queries) || queries.length === 0) {
-      return res.status(400).json({ error: 'No queries provided' });
-    }
+    req.on('end', async () => {
+      try {
+        const { queries, apiKey } = JSON.parse(body);
 
-    if (!apiKey) {
-      return res.status(400).json({ error: 'API key required' });
-    }
+        if (!queries || !Array.isArray(queries) || queries.length === 0) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'No queries provided' }));
+          return;
+        }
 
-    const results = await Promise.all(
-      queries.map(query => callPerplexity(query, apiKey))
-    );
+        if (!apiKey) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'API key required' }));
+          return;
+        }
 
-    return res.status(200).json({ results });
+        const results = await Promise.all(
+          queries.map(query => callPerplexity(query, apiKey))
+        );
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ results }));
+      } catch (parseError) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+      }
+    });
 
   } catch (error) {
     console.error('Error:', error);
-    return res.status(500).json({ 
-      error: error.message,
-      details: 'Failed to process request'
-    });
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: error.message }));
   }
-}
+});
 
 async function callPerplexity(query, apiKey) {
   try {
@@ -52,7 +76,7 @@ async function callPerplexity(query, apiKey) {
         messages: [
           {
             role: 'system',
-            content: 'You are a due diligence investigator. Search for factual information about corruption, fraud, legal issues, sanctions, or controversies. Provide only verified information with sources.'
+            content: 'You are a due diligence investigator. Search for factual information about corruption, fraud, legal issues, sanctions, or controversies.'
           },
           {
             role: 'user',
@@ -67,7 +91,6 @@ async function callPerplexity(query, apiKey) {
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
       throw new Error(`Perplexity error: ${response.status}`);
     }
 
@@ -88,3 +111,7 @@ async function callPerplexity(query, apiKey) {
     };
   }
 }
+
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
