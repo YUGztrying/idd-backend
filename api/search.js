@@ -4,6 +4,8 @@ const http = require('http');
 const PORT = process.env.PORT || 10000;
 
 const server = http.createServer(async (req, res) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -11,13 +13,22 @@ const server = http.createServer(async (req, res) => {
 
   // Handle preflight
   if (req.method === 'OPTIONS') {
+    console.log('OPTIONS request - responding with CORS headers');
     res.writeHead(200);
     res.end();
     return;
   }
 
   // Only POST to /api/search
-  if (req.url !== '/api/search' || req.method !== 'POST') {
+  if (req.url !== '/api/search') {
+    console.log(`Wrong URL: ${req.url}`);
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Not found' }));
+    return;
+  }
+
+  if (req.method !== 'POST') {
+    console.log(`Wrong method: ${req.method}`);
     res.writeHead(405, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Method not allowed' }));
     return;
@@ -31,40 +42,58 @@ const server = http.createServer(async (req, res) => {
 
     req.on('end', async () => {
       try {
+        console.log('Received body:', body.substring(0, 200)); // Log first 200 chars
+        
         const { queries, apiKey } = JSON.parse(body);
 
+        console.log('Parsed queries:', queries ? queries.length : 0);
+        console.log('API Key present:', apiKey ? 'YES (length: ' + apiKey.length + ')' : 'NO');
+
         if (!queries || !Array.isArray(queries) || queries.length === 0) {
+          console.log('ERROR: No queries provided');
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'No queries provided' }));
           return;
         }
 
         if (!apiKey) {
+          console.log('ERROR: No API key provided');
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'API key required' }));
           return;
         }
 
+        console.log('Calling Perplexity for', queries.length, 'queries...');
+        
         const results = await Promise.all(
-          queries.map(query => callPerplexity(query, apiKey))
+          queries.map((query, index) => {
+            console.log(`Query ${index + 1}:`, query.substring(0, 50));
+            return callPerplexity(query, apiKey);
+          })
         );
 
+        console.log('All queries completed. Results:', results.length);
+        
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ results }));
+        
       } catch (parseError) {
+        console.error('Parse error:', parseError);
         res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+        res.end(JSON.stringify({ error: 'Invalid JSON: ' + parseError.message }));
       }
     });
 
   } catch (error) {
-    console.error('Error:', error);
+    console.error('Server error:', error);
     res.writeHead(500, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: error.message }));
   }
 });
 
 async function callPerplexity(query, apiKey) {
+  console.log('Calling Perplexity API for query:', query.substring(0, 30));
+  
   try {
     const response = await fetch('https://api.perplexity.ai/chat/completions', {
       method: 'POST',
@@ -91,11 +120,16 @@ async function callPerplexity(query, apiKey) {
       })
     });
 
+    console.log('Perplexity response status:', response.status);
+
     if (!response.ok) {
-      throw new Error(`Perplexity error: ${response.status}`);
+      const errorText = await response.text();
+      console.error('Perplexity error response:', errorText);
+      throw new Error(`Perplexity error: ${response.status} - ${errorText}`);
     }
 
     const data = await response.json();
+    console.log('Perplexity success! Content length:', data.choices[0].message.content.length);
     
     return {
       query,
@@ -104,10 +138,11 @@ async function callPerplexity(query, apiKey) {
     };
 
   } catch (error) {
+    console.error('callPerplexity error:', error.message);
     return {
       query,
       error: error.message,
-      content: 'Error fetching data',
+      content: 'Error fetching data: ' + error.message,
       citations: []
     };
   }
@@ -115,4 +150,27 @@ async function callPerplexity(query, apiKey) {
 
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  console.log('Waiting for requests...');
 });
+```
+
+**Commit ce code**
+
+---
+
+## 📊 ÉTAPE 3 : Attendre le redéploiement et regarder les logs
+
+1. Render va redéployer automatiquement (2-3 min)
+2. Une fois "Live", va dans l'onglet **"Logs"** sur Render
+3. **Lance une recherche** sur ton frontend
+4. **Regarde les logs** en temps réel
+
+Tu devrais voir quelque chose comme :
+```
+Server running on port 10000
+POST /api/search
+Received body: {"queries":[...
+Parsed queries: 5
+API Key present: YES (length: 56)
+Calling Perplexity API for query: ...
+Perplexity response status: 200
