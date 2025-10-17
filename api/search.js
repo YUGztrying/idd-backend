@@ -88,28 +88,16 @@ const server = http.createServer(async (req, res) => {
 
 async function callPerplexity(query, apiKey) {
   try {
-    const response = await fetch('https://api.perplexity.ai/chat/completions', {
+    const response = await fetch('https://api.perplexity.ai/search', {
       method: 'POST',
       headers: {
         'Authorization': 'Bearer ' + apiKey,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'llama-3.1-sonar-large-128k-online',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a due diligence investigator. Search for factual information about corruption, fraud, legal issues, sanctions, or controversies.'
-          },
-          {
-            role: 'user',
-            content: query
-          }
-        ],
-        temperature: 0.2,
-        max_tokens: 1000,
-        return_citations: true,
-        return_related_questions: false
+        query: query,
+        max_results: 10,
+        max_tokens_per_page: 1024
       })
     });
 
@@ -122,12 +110,30 @@ async function callPerplexity(query, apiKey) {
     }
 
     const data = await response.json();
-    console.log('[PERPLEXITY] Success! Content length:', data.choices[0].message.content.length);
+    console.log('[PERPLEXITY] Success! Results count:', data.results ? data.results.length : 0);
+    
+    // Format results into readable content
+    let content = '';
+    let citations = [];
+    
+    if (data.results && data.results.length > 0) {
+      content = 'Search Results:\n\n';
+      data.results.forEach((result, index) => {
+        content += (index + 1) + '. ' + result.title + '\n';
+        if (result.snippet) {
+          content += result.snippet + '\n';
+        }
+        content += '\n';
+        citations.push(result.url);
+      });
+    } else {
+      content = 'No results found for this query.';
+    }
     
     return {
       query,
-      content: data.choices[0].message.content,
-      citations: data.citations || []
+      content: content,
+      citations: citations
     };
 
   } catch (error) {
